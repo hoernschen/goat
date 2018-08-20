@@ -11,8 +11,11 @@ import (
 	"github.com/urfave/cli"
 )
 
-var keyPath = "C:/SSL/ssl.key"
-var certPath = "C:/SSL/ssl.crt"
+//var keyPath = "C:/SSL/ssl.key"
+var keyPath = "/home/hoernschen/ssl.key"
+
+//var certPath = "C:/SSL/ssl.crt"
+var certPath = "/home/hoernschen/ssl.crt"
 var htmlPath = "./html/"
 
 func main() {
@@ -101,7 +104,8 @@ func main() {
 	router.PathPrefix("/").Handler(http.FileServer(http.Dir(htmlPath)))
 	//router.Methods("GET").Path("/ws").Name("Websocket Connection").HandlerFunc(handler.WSConnection)
 	//go handler.WSMessages()
-	go signaling.Run()
+	//go signaling.Run()
+	go signaling.RunMediaServer()
 
 	httpErr := http.ListenAndServeTLS(":443", certPath, keyPath, router)
 	if httpErr != nil {

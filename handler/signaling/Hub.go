@@ -3,9 +3,15 @@ package signaling
 import (
 	"encoding/json"
 	"log"
+	"strings"
 
 	"github.com/pions/webrtc"
 )
+
+type rtcsessiondescription struct {
+	Type string `json:"type"`
+	Sdp  string `json:"sdp"`
+}
 
 // h maintains the set of active connections and broadcasts messages to the
 // connections.
@@ -22,6 +28,8 @@ type hub struct {
 	// Unregister requests from connections.
 	unregister chan subscription
 }
+
+var peerConnection *webrtc.RTCPeerConnection
 
 var h = hub{
 	broadcast:  make(chan message),
@@ -132,13 +140,30 @@ func RunMediaServer() {
 					}
 				}
 			}
-			peerConnection, err := webrtc.New(webrtc.RTCConfiguration{
+			peerConnection, conErr := webrtc.New(webrtc.RTCConfiguration{
 				ICEServers: []webrtc.RTCICEServer{
 					{
 						URLs: []string{"stun:stun.l.google.com:19302"},
 					},
 				},
 			})
+			if conErr != nil {
+				log.Fatal(conErr)
+			}
+			offer, offerErr := peerConnection.CreateOffer(nil)
+			if offerErr != nil {
+				log.Fatal(offerErr)
+			}
+			log.Println(offer)
+			o := rtcsessiondescription{offer.Type.String(), offer.Sdp}
+			b, err = json.Marshal(o)
+			if err != nil {
+				log.Println(err)
+			}
+
+			if err := sub.Con.writeJSON(message{string(b), sub}); err != nil {
+				log.Fatal(err)
+			}
 		case sub := <-h.unregister:
 			log.Println("unregister")
 			connections := h.rooms[sub.Room]
@@ -153,16 +178,25 @@ func RunMediaServer() {
 			}
 		case msg := <-h.broadcast:
 			log.Println("broadcast")
-			connections := h.rooms[msg.Sub.Room]
-			for con := range connections {
-				if con != msg.Sub.Con {
-					select {
-					case con.send <- msg:
-					default:
-						close(con.send)
-						delete(connections, con)
-						if len(connections) == 0 {
-							delete(h.rooms, msg.Sub.Room)
+			log.Println(msg.Data)
+			if strings.Contains(msg.Data, "answer") {
+				var tsd rtcsessiondescription
+				if err := json.Unmarshal([]byte(msg.Data), &tsd); err != nil {
+					log.Fatal(err)
+				}
+
+			} else {
+				connections := h.rooms[msg.Sub.Room]
+				for con := range connections {
+					if con != msg.Sub.Con {
+						select {
+						case con.send <- msg:
+						default:
+							close(con.send)
+							delete(connections, con)
+							if len(connections) == 0 {
+								delete(h.rooms, msg.Sub.Room)
+							}
 						}
 					}
 				}

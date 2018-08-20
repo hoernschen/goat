@@ -33,13 +33,20 @@ navigator.mediaDevices.getUserMedia(constraints)
 
     socket = new WebSocket("wss://" + document.location.host + "/ws/" + room);
     socket.onmessage = function (event) {
+        console.log(event);
         var data = JSON.parse(event.data);
+        console.log(data);
         var clientId = null;
         if (data.sub.con.clientId){
             clientId = data.sub.con.clientId;
         }
-        
+        console.log(clientId);
         var msg = JSON.parse(data.data);
+        console.log(msg);
+        console.log(msg.type);
+        if(msg.Type == 1){
+            msg.type = "offer";
+        }
         switch (msg.type) {
             case "created":
                 console.log('Created room ' + msg.text);
@@ -78,8 +85,9 @@ navigator.mediaDevices.getUserMedia(constraints)
                 }
                 break;
             case "offer":
+                console.log("Got Offer");
                 if(clientId !== null){    
-                    console.log("Got Offer");
+                    
                     pc = null;
                     if (connections.has(clientId)){
                         pc = connections.get(clientId);
