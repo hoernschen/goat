@@ -7,20 +7,14 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/pions/webrtc"
 	uuid "github.com/satori/go.uuid"
 )
 
 const (
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
-
-	// Maximum message size allowed from peer.
+	writeWait      = 10 * time.Second
+	pongWait       = 60 * time.Second
+	pingPeriod     = (pongWait * 9) / 10
 	maxMessageSize = 512
 )
 
@@ -29,18 +23,14 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-// connection is an middleman between the websocket connection and the hub.
 type connection struct {
-	ClientID string `json:"clientId"`
-
-	// The websocket connection.
-	ws *websocket.Conn
-
-	// Buffered channel of outbound messages.
-	send chan message
+	ClientID      string `json:"clientId"`
+	ws            *websocket.Conn
+	peer          *webrtc.RTCPeerConnection
+	receiverPeers map[string]*webrtc.RTCPeerConnection
+	send          chan message
 }
 
-// write writes a message with the given message type and payload.
 func (c *connection) write(mt int, payload []byte) error {
 	c.ws.SetWriteDeadline(time.Now().Add(writeWait))
 	return c.ws.WriteMessage(mt, payload)
@@ -51,7 +41,6 @@ func (c *connection) writeJSON(message message) error {
 	return c.ws.WriteJSON(message)
 }
 
-// WSConnection handles websocket requests from the peer.
 func WSConnection(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 

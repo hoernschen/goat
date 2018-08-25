@@ -31,7 +31,7 @@ navigator.mediaDevices.getUserMedia(constraints)
     localStream = stream;
     localVideo.srcObject = stream;
 
-    socket = new WebSocket("wss://" + document.location.host + "/ws/" + room);
+    socket = new WebSocket("wss://" + document.location.host + "/r/" + room);
     socket.onmessage = function (event) {
         console.log(event);
         var data = JSON.parse(event.data);
@@ -60,19 +60,43 @@ navigator.mediaDevices.getUserMedia(constraints)
                 isChannelReady = true;
                 if (connections.size < remoteVideo.length && clientId !== null) {
                     console.log("New Peer: Send Offer");
-                    pc = new RTCPeerConnection(null);
-                    pc.onicecandidate = handleIceCandidate;
+                    pc = new RTCPeerConnection(pcConfig);
                     pc.onremovestream = handleRemoteStreamRemoved;
+                    pc.oniceconnectionstatechange = handleIceConnectionStateChange;
                     pc.ontrack = handleRemoteTrack;
                     localStream.getTracks().forEach(track => {
                         pc.addTrack(track, localStream);
                     });
-                    pc.createOffer(
-                        function (desc) {
-                            console.log("Offer: set local Description");
-                            pc.setLocalDescription(desc);
-                            socket.send(JSON.stringify(desc));
-                        }, handleCreateOfferError
+                    pc.onicecandidate = function(event) {
+                        console.log('icecandidate event: ', event);
+                        if (event.candidate) {
+                            console.log(event.candidate)
+                            /*
+                            socket.send(JSON.stringify({
+                                type: 'candidate',
+                                label: event.candidate.sdpMLineIndex,
+                                id: event.candidate.sdpMid,
+                                candidate: event.candidate.candidate,
+                                clientId: clientId
+                            }));
+                            */
+                           
+                        } else {
+                            console.log('End of candidates.');
+                            socket.send(JSON.stringify({type: "offer", sdp: pc.localDescription.sdp, clientId: clientId}));
+                        }
+                    };
+                    pc.createOffer().then(
+                        function(desc){
+                            console.log("Answer: set local Description");
+                            if (connections.has(clientId)){
+                                connection = connections.get(clientId);
+                                connection.setLocalDescription(desc);
+                                //socket.send(JSON.stringify({type: desc.type, sdp: desc.sdp, clientId: clientId}));
+                            } else {
+                                console.log("Client not in Map");
+                            }
+                        }, onCreateSessionDescriptionError
                     );
                     connections.set(clientId,pc);
                 }
@@ -87,30 +111,61 @@ navigator.mediaDevices.getUserMedia(constraints)
             case "offer":
                 console.log("Got Offer");
                 if(clientId !== null){    
-                    
+                    if(msg.clientId && msg.clientId !== null && msg.clientId != "") {
+                        clientId = msg.clientId;
+                    }
                     pc = null;
                     if (connections.has(clientId)){
+                        console.log("Existing Peer");
                         pc = connections.get(clientId);
                     }
                     else if (connections.size < remoteVideo.length) {
-                        pc = new RTCPeerConnection(null);
-                        pc.onicecandidate = handleIceCandidate;
-                        pc.onremovestream = handleRemoteStreamRemoved;
-                        pc.ontrack = handleRemoteTrack;
-                        localStream.getTracks().forEach(track => {
-                            pc.addTrack(track, localStream);
-                        });
+                        console.log("New Peer");
+                        pc = new RTCPeerConnection(pcConfig);
                         connections.set(clientId, pc);
                     }
                     if(pc !== null){
+                        console.log("Peer Connection is not null");
+                        
+                        pc.onremovestream = handleRemoteStreamRemoved;
+                        pc.oniceconnectionstatechange = handleIceConnectionStateChange;
+                        pc.ontrack = handleRemoteTrack;
+                        if(clientId == localClientId){
+                            localStream.getTracks().forEach(track => {
+                                console.log("New Track");
+                                pc.addTrack(track, localStream);
+                            });
+                        }
+                        pc.onicecandidate = function(event) {
+                            console.log('icecandidate event: ', event);
+                            if (event.candidate) {
+                                console.log(event.candidate.sdpMLineIndex)
+                                console.log(event.candidate.sdpMid)
+                                console.log(event.candidate.candidate)
+                                /*
+                                socket.send(JSON.stringify({
+                                    type: 'candidate',
+                                    label: event.candidate.sdpMLineIndex,
+                                    id: event.candidate.sdpMid,
+                                    candidate: event.candidate.candidate,
+                                    clientId: clientId
+                                }));
+                                */
+                            } else {
+                                console.log('End of candidates.');
+                                console.log(pc.localDescription.sdp);
+                                socket.send(JSON.stringify({type: "answer", sdp: pc.localDescription.sdp, clientId: clientId}));
+                            }
+                        };
                         pc.setRemoteDescription(new RTCSessionDescription(msg));
+                        console.log("Create Answer");
                         pc.createAnswer().then(
                             function(desc){
                                 console.log("Answer: set local Description");
                                 if (connections.has(clientId)){
                                     connection = connections.get(clientId);
                                     connection.setLocalDescription(desc);
-                                    socket.send(JSON.stringify({type: desc.type, sdp: desc.sdp, clientId: clientId}));
+                                    //socket.send(JSON.stringify({type: desc.type, sdp: desc.sdp, clientId: clientId}));
                                 } else {
                                     console.log("Client not in Map");
                                 }
@@ -162,11 +217,16 @@ function handleIceCandidate(event) {
             type: 'candidate',
             label: event.candidate.sdpMLineIndex,
             id: event.candidate.sdpMid,
-            candidate: event.candidate.candidate
+            candidate: event.candidate.candidate,
+            clientId: clientId
         }));
     } else {
         console.log('End of candidates.');
     }
+}
+
+function handleIceConnectionStateChange(event) {
+    console.log("iceconnectionstatechanged event: ", event);
 }
 
 function handleCreateOfferError(event) {
@@ -179,6 +239,7 @@ function onCreateSessionDescriptionError(error) {
 
 function handleRemoteTrack(event) {
     console.log("Got Remote Track");
+    console.log(event);
     if(event.track.kind == "video"){
         var index = remoteStream.length;
         remoteStream.push(event.streams[0]);

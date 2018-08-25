@@ -22,7 +22,6 @@ type subscription struct {
 	Room string      `json:"room"`
 }
 
-// readPump pumps messages from the websocket connection to the hub.
 func (s subscription) readPump() {
 	c := s.Con
 	log.Println(c)
@@ -30,7 +29,6 @@ func (s subscription) readPump() {
 		h.unregister <- s
 		c.ws.Close()
 	}()
-	//c.ws.SetReadLimit(maxMessageSize)
 	c.ws.SetReadDeadline(time.Now().Add(pongWait))
 	c.ws.SetPongHandler(func(string) error { c.ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
 	for {
@@ -42,12 +40,10 @@ func (s subscription) readPump() {
 			}
 			break
 		}
-		//h.broadcast <- message{msg, s.room}
 		h.broadcast <- message{string(msg), s}
 	}
 }
 
-// writePump pumps messages from the hub to the websocket connection.
 func (s *subscription) writePump() {
 	c := s.Con
 	ticker := time.NewTicker(pingPeriod)
@@ -58,7 +54,6 @@ func (s *subscription) writePump() {
 	for {
 		select {
 		case msg, ok := <-c.send:
-			log.Println("Send: " + msg.Data)
 			if !ok {
 				c.write(websocket.CloseMessage, []byte{})
 				return
