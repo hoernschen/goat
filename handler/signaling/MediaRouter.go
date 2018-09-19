@@ -7,6 +7,7 @@ import (
 
 	"github.com/pions/webrtc"
 	"github.com/pions/webrtc/pkg/ice"
+	"github.com/pions/webrtc/pkg/media/samplebuilder"
 )
 
 type rtcsessiondescription struct {
@@ -15,39 +16,17 @@ type rtcsessiondescription struct {
 	ClientID string `json:"clientId"`
 }
 
-type icecandidate struct {
-	Type      string `json:"type"`
-	Label     int    `json:"label"`
-	ID        string `json:"id"`
-	Candidate string `json:"candidate"`
-	ClientID  string `json:"clientId"`
-}
-
-const (
-	videoClockRate = 90000
-	audioClockRate = 48000
-)
-
 var receiver = make(map[string][]*webrtc.RTCTrack)
 
 func buildPeerConnection(sub subscription) *webrtc.RTCPeerConnection {
 	webrtc.RegisterCodec(webrtc.NewRTCRtpVP8Codec(webrtc.DefaultPayloadTypeVP8, 90000))
-	connection, err := webrtc.New(webrtc.RTCConfiguration{
-		ICEServers: []webrtc.RTCICEServer{
-			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
-			},
-		},
-	})
+	connection, err := webrtc.New(webrtc.RTCConfiguration{})
 
 	if err != nil {
 		panic(err)
 	}
 
 	connection.Ontrack = func(track *webrtc.RTCTrack) {
-		log.Println("new Track")
-		log.Println(track.PayloadType)
-		log.Println(track.ID)
 		connections := h.rooms[sub.Room]
 		for con := range connections {
 			if _, ok := con.receiverPeers[sub.Con.ClientID]; !ok && con.ClientID != sub.Con.ClientID {
@@ -81,10 +60,14 @@ func buildPeerConnection(sub subscription) *webrtc.RTCPeerConnection {
 			}
 		}
 		log.Println("handle Packets")
+		builder := samplebuilder.New(256)
+
 		for {
-			for _, receiver := range receiver[sub.Con.ClientID] {
-				packet := <-track.IncomingPackets
-				receiver.OutgoingPackets <- packet
+			builder.Push(<-track.Packets)
+			for s := builder.Pop(); s != nil; s = builder.Pop() {
+				for _, receiver := range receiver[sub.Con.ClientID] {
+					receiver.Samples <- *s
+				}
 			}
 		}
 	}
@@ -201,28 +184,6 @@ func RunMediaRouter() {
 
 				if err := msg.Sub.Con.writeJSON(message{string(b), msg.Sub}); err != nil {
 					log.Fatal(err)
-				}
-			} else if strings.Contains(msg.Data, "candidate") {
-				log.Println("Candidate")
-				log.Println(msg.Sub.Con.peer.IceConnectionState)
-				var candidate icecandidate
-				if err := json.Unmarshal([]byte(msg.Data), &candidate); err != nil {
-					log.Fatal(err)
-				}
-				log.Println("Candidate ClientID: ", candidate.ClientID)
-				log.Println("Peer ClientID: ", msg.Sub.Con.ClientID)
-				if c := ice.ICECandidateUnmarshal(candidate.Candidate); c != nil {
-					if candidate.ClientID != msg.Sub.Con.ClientID {
-						if _, ok := msg.Sub.Con.receiverPeers[candidate.ClientID]; ok {
-							msg.Sub.Con.receiverPeers[candidate.ClientID].NetworkManager.IceAgent.AddRemoteCandidate(c)
-						} else {
-							log.Println("Receiver Peer not found")
-						}
-					} else {
-						msg.Sub.Con.peer.NetworkManager.IceAgent.AddRemoteCandidate(c)
-					}
-				} else {
-					log.Fatal("Tried to parse ICE candidate, but failed")
 				}
 			} else {
 				connections := h.rooms[msg.Sub.Room]

@@ -10,12 +10,15 @@ var connection;
 var connections = new Map();
 var remoteStream = [];
 var turnReady;
-
+/*
 var pcConfig = {
     'iceServers': [{
         'urls': 'stun:stun.l.google.com:19302'
-    }]
+    }],
 };
+*/
+
+var pcConfig = null;
 
 var constraints = {
     video: true,
@@ -33,17 +36,17 @@ navigator.mediaDevices.getUserMedia(constraints)
 
     socket = new WebSocket("wss://" + document.location.host + "/r/" + room);
     socket.onmessage = function (event) {
-        console.log(event);
+        console.log("event: " + event);
         var data = JSON.parse(event.data);
-        console.log(data);
+        console.log("data: " + data);
         var clientId = null;
         if (data.sub.con.clientId){
             clientId = data.sub.con.clientId;
         }
-        console.log(clientId);
+        console.log("clientId: " + clientId);
         var msg = JSON.parse(data.data);
-        console.log(msg);
-        console.log(msg.type);
+        console.log("msg: " + msg);
+        console.log("msgType: " + msg.type);
         if(msg.Type == 1){
             msg.type = "offer";
         }
@@ -59,7 +62,7 @@ navigator.mediaDevices.getUserMedia(constraints)
             case "join":
                 isChannelReady = true;
                 if (connections.size < remoteVideo.length && clientId !== null) {
-                    console.log("New Peer: Send Offer");
+                    console.log("New Peer: Create Offer");
                     pc = new RTCPeerConnection(pcConfig);
                     pc.onremovestream = handleRemoteStreamRemoved;
                     pc.oniceconnectionstatechange = handleIceConnectionStateChange;
@@ -82,7 +85,8 @@ navigator.mediaDevices.getUserMedia(constraints)
                             */
                            
                         } else {
-                            console.log('End of candidates.');
+                            console.log('Send Offer');
+                            console.log(pc.localDescription.sdp);
                             socket.send(JSON.stringify({type: "offer", sdp: pc.localDescription.sdp, clientId: clientId}));
                         }
                     };
@@ -139,8 +143,6 @@ navigator.mediaDevices.getUserMedia(constraints)
                         pc.onicecandidate = function(event) {
                             console.log('icecandidate event: ', event);
                             if (event.candidate) {
-                                console.log(event.candidate.sdpMLineIndex)
-                                console.log(event.candidate.sdpMid)
                                 console.log(event.candidate.candidate)
                                 /*
                                 socket.send(JSON.stringify({
