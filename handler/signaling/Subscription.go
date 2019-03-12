@@ -24,7 +24,6 @@ type subscription struct {
 
 func (s subscription) readPump() {
 	c := s.Con
-	log.Println(c)
 	defer func() {
 		h.unregister <- s
 		c.ws.Close()

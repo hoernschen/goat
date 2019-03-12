@@ -33,17 +33,13 @@ navigator.mediaDevices.getUserMedia(constraints)
 
     socket = new WebSocket("wss://" + document.location.host + "/r/" + room);
     socket.onmessage = function (event) {
-        console.log(event);
         var data = JSON.parse(event.data);
-        console.log(data);
         var clientId = null;
         if (data.sub.con.clientId){
             clientId = data.sub.con.clientId;
         }
         console.log(clientId);
         var msg = JSON.parse(data.data);
-        console.log(msg);
-        console.log(msg.type);
         if(msg.Type == 1){
             msg.type = "offer";
         }
@@ -62,15 +58,17 @@ navigator.mediaDevices.getUserMedia(constraints)
                     console.log("New Peer: Send Offer");
                     pc = new RTCPeerConnection(pcConfig);
                     pc.onremovestream = handleRemoteStreamRemoved;
+                    pc.onnegotiationneeded = handleOnNegotiationNeeded;
+                    pc.onicegatheringstatechange = handleIceGatheringStateChange;
                     pc.oniceconnectionstatechange = handleIceConnectionStateChange;
                     pc.ontrack = handleRemoteTrack;
                     localStream.getTracks().forEach(track => {
+                        console.log("New Track");
                         pc.addTrack(track, localStream);
                     });
                     pc.onicecandidate = function(event) {
-                        console.log('icecandidate event: ', event);
                         if (event.candidate) {
-                            console.log(event.candidate)
+                            console.log("Local Candidate: ", event.candidate);                            
                             /*
                             socket.send(JSON.stringify({
                                 type: 'candidate',
@@ -80,15 +78,13 @@ navigator.mediaDevices.getUserMedia(constraints)
                                 clientId: clientId
                             }));
                             */
-                           
                         } else {
-                            console.log('End of candidates.');
                             socket.send(JSON.stringify({type: "offer", sdp: pc.localDescription.sdp, clientId: clientId}));
                         }
                     };
                     pc.createOffer().then(
                         function(desc){
-                            console.log("Answer: set local Description");
+                            console.log("Offer: set local Description");
                             if (connections.has(clientId)){
                                 connection = connections.get(clientId);
                                 connection.setLocalDescription(desc);
@@ -110,10 +106,12 @@ navigator.mediaDevices.getUserMedia(constraints)
                 break;
             case "offer":
                 console.log("Got Offer");
-                if(clientId !== null){    
+                //if(clientId !== null && msg.clientId == localClientId){    
+                    
                     if(msg.clientId && msg.clientId !== null && msg.clientId != "") {
                         clientId = msg.clientId;
                     }
+                    
                     pc = null;
                     if (connections.has(clientId)){
                         console.log("Existing Peer");
@@ -122,26 +120,24 @@ navigator.mediaDevices.getUserMedia(constraints)
                     else if (connections.size < remoteVideo.length) {
                         console.log("New Peer");
                         pc = new RTCPeerConnection(pcConfig);
-                        connections.set(clientId, pc);
-                    }
-                    if(pc !== null){
-                        console.log("Peer Connection is not null");
-                        
-                        pc.onremovestream = handleRemoteStreamRemoved;
-                        pc.oniceconnectionstatechange = handleIceConnectionStateChange;
-                        pc.ontrack = handleRemoteTrack;
                         if(clientId == localClientId){
                             localStream.getTracks().forEach(track => {
                                 console.log("New Track");
                                 pc.addTrack(track, localStream);
                             });
                         }
+                        connections.set(clientId, pc);
+                    }
+                    if(pc !== null){
+                        console.log("Peer Connection is not null");
+                        pc.onremovestream = handleRemoteStreamRemoved;
+                        pc.onnegotiationneeded = handleOnNegotiationNeeded;
+                        pc.onicegatheringstatechange = handleIceGatheringStateChange;
+                        pc.oniceconnectionstatechange = handleIceConnectionStateChange;
+                        pc.ontrack = handleRemoteTrack;
                         pc.onicecandidate = function(event) {
-                            console.log('icecandidate event: ', event);
                             if (event.candidate) {
-                                console.log(event.candidate.sdpMLineIndex)
-                                console.log(event.candidate.sdpMid)
-                                console.log(event.candidate.candidate)
+                                console.log("Local Candidate: ", event.candidate);             
                                 /*
                                 socket.send(JSON.stringify({
                                     type: 'candidate',
@@ -152,13 +148,10 @@ navigator.mediaDevices.getUserMedia(constraints)
                                 }));
                                 */
                             } else {
-                                console.log('End of candidates.');
-                                console.log(pc.localDescription.sdp);
                                 socket.send(JSON.stringify({type: "answer", sdp: pc.localDescription.sdp, clientId: clientId}));
                             }
                         };
                         pc.setRemoteDescription(new RTCSessionDescription(msg));
-                        console.log("Create Answer");
                         pc.createAnswer().then(
                             function(desc){
                                 console.log("Answer: set local Description");
@@ -172,7 +165,7 @@ navigator.mediaDevices.getUserMedia(constraints)
                             }, onCreateSessionDescriptionError
                         );
                     }
-                }
+                //}
                 break;
             case "answer":
                 console.log("Got Answer");
@@ -183,7 +176,7 @@ navigator.mediaDevices.getUserMedia(constraints)
                 }
                 break;
             case "candidate":
-                console.log("candidate");
+                console.log("Remote Candidate: ", msg);
                 connection = connections.get(clientId);
                 if (connection && connection !== null){
                     var candidate = new RTCIceCandidate({
@@ -225,18 +218,6 @@ function handleIceCandidate(event) {
     }
 }
 
-function handleIceConnectionStateChange(event) {
-    console.log("iceconnectionstatechanged event: ", event);
-}
-
-function handleCreateOfferError(event) {
-    console.log('createOffer() error: ', event);
-}
-
-function onCreateSessionDescriptionError(error) {
-    console.log('Failed to create session description: ' + error.toString());
-}
-
 function handleRemoteTrack(event) {
     console.log("Got Remote Track");
     console.log(event);
@@ -244,16 +225,8 @@ function handleRemoteTrack(event) {
         var index = remoteStream.length;
         remoteStream.push(event.streams[0]);
         remoteVideo[index].srcObject = event.streams[0];
+        remoteVideo[index].autoplay = true;
     }
-}
-
-function handleRemoteStreamRemoved(event) {
-    console.log('Remote stream removed. Event: ', event);
-}
-
-function hangup() {
-    console.log('Hanging up.');
-    socket.send(JSON.stringify({ type: 'message', message: 'bye' }));
 }
 
 function handleRemoteHangup(clientId) {
@@ -265,3 +238,35 @@ function handleRemoteHangup(clientId) {
     }
     isInitiator = false;
 }
+
+function hangup() {
+    console.log('Hanging up.');
+    socket.send(JSON.stringify({ type: 'message', message: 'bye' }));
+}
+
+function handleIceConnectionStateChange(event) {
+    console.log("iceconnectionstatechanged event: ", event);
+}
+
+function handleIceGatheringStateChange(event) {
+    console.log("icegatheringstatechanged event: ", event);
+}
+
+function handleCreateOfferError(event) {
+    console.log('createOffer() error: ', event);
+}
+
+function onCreateSessionDescriptionError(error) {
+    console.log('Failed to create session description: ' + error.toString());
+}
+
+function handleOnNegotiationNeeded(event){
+    console.log("Negotiation is needed. Event: ", event)
+}
+
+function handleRemoteStreamRemoved(event) {
+    console.log('Remote stream removed. Event: ', event);
+}
+
+
+
