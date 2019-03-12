@@ -10,12 +10,15 @@ var connection;
 var connections = new Map();
 var remoteStream = [];
 var turnReady;
-
+/*
 var pcConfig = {
     'iceServers': [{
         'urls': 'stun:stun.l.google.com:19302'
-    }]
+    }],
 };
+*/
+
+var pcConfig = null;
 
 var constraints = {
     video: true,
@@ -34,11 +37,12 @@ navigator.mediaDevices.getUserMedia(constraints)
     socket = new WebSocket("wss://" + document.location.host + "/r/" + room);
     socket.onmessage = function (event) {
         var data = JSON.parse(event.data);
+
         var clientId = null;
         if (data.sub.con.clientId){
             clientId = data.sub.con.clientId;
         }
-        console.log(clientId);
+        console.log("clientId: " + clientId);
         var msg = JSON.parse(data.data);
         if(msg.Type == 1){
             msg.type = "offer";
@@ -55,7 +59,7 @@ navigator.mediaDevices.getUserMedia(constraints)
             case "join":
                 isChannelReady = true;
                 if (connections.size < remoteVideo.length && clientId !== null) {
-                    console.log("New Peer: Send Offer");
+                    console.log("New Peer: Create Offer");
                     pc = new RTCPeerConnection(pcConfig);
                     pc.onremovestream = handleRemoteStreamRemoved;
                     pc.onnegotiationneeded = handleOnNegotiationNeeded;
